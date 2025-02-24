@@ -1,0 +1,46 @@
+---
+- name: Установить Apache (httpd)
+  yum:
+    name: httpd
+    state: present
+
+- name: Создать каталог для сайта
+  file:
+    path: /opt/html
+    state: directory
+    mode: '0755'
+
+- name: Создать файл index.html с приветствием
+  template:
+    src: index.html.j2
+    dest: /opt/html/index.html
+    mode: '0644'
+  notify:
+    - Перезапустить Apache
+
+- name: Update Apache DocumentRoot
+  lineinfile:
+    path: /etc/httpd/conf/httpd.conf
+    regexp: '^DocumentRoot "/var/www/html"'
+    line: 'DocumentRoot "/opt/html"'
+    state: present
+
+- name: Update Apache Directory block
+  blockinfile:
+        path: /etc/httpd/conf/httpd.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - Directory Config"
+        block: |
+          <Directory "/opt/html">
+              Options Indexes FollowSymLinks
+              AllowOverride None
+              Require all granted
+          </Directory>
+        insertafter: '^#<Directory "/var/www">'
+  notify: 
+    - Перезапустить Apache
+
+- name: Запустить и включить Apache
+  service:
+    name: httpd
+    state: started
+    enabled: yes

@@ -1,0 +1,12 @@
+---
+- name: Настройка HAProxy
+  hosts: haproxy
+  become: yes
+  roles:
+    - haproxy
+
+- name: Настройка Apache
+  hosts: apache
+  become: yes
+  roles:
+    - apache

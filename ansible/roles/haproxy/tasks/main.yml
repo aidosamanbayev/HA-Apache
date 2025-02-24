@@ -1,0 +1,19 @@
+---
+- name: Установить HAProxy
+  yum:
+    name: haproxy
+    state: present
+
+- name: Скопировать шаблон конфигурации HAProxy
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    mode: '0644'
+  notify:
+    - Перезапустить HAProxy
+
+- name: Запустить и включить HAProxy
+  service:
+    name: haproxy
+    state: started
+    enabled: yes

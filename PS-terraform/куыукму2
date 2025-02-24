@@ -1,0 +1,128 @@
+terraform {
+  required_providers {
+    openstack = {
+      source  = "terraform-provider-openstack/openstack"
+      version = "~> 1.45.0"
+    }
+  }
+}
+
+provider "openstack" {
+  user_name = "17129_sigma-neptunium 1" #Имя пользователя Openstack
+  tenant_name = "sigma-neptunium 1" #Имя проекта (тенант) Openstack
+  password = "Fqljc$14" # Пароль для аутентификации.
+  auth_url    = "https://auth.pscloud.io/v3/"
+  region      = "kz-ala-1"
+}
+
+variable "image_id" {
+  default = "4e7b44b4-4e05-4726-a4c5-ad5e4cb60fbf"
+}
+
+#variable "os_tenant_network" {
+#  default = "test-sigma"
+#}
+
+resource "openstack_compute_keypair_v2" "ssh" {
+  name       = "sigma"
+  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC/eNDQn5YGET0OsN3OCDDEQXOO7NRdRLm5gmfJ0O7exF9S2lW/LQVuE+Nmq9GlW362Hq9TRyEZVRXD+dOVWQFNdEj+0P0Sdwl4vlkQ4B0aJNmKnb8pYcuSYoLRFNfocqP1KRAPeJAMhUHdZoC1ykrLG2+uoed6vwuJVneJL66O7SI1iEfrC6ju6NFCeLnFqqPkNu1V/LhIAgZbP0zPbv3AX9fDBANpChMVLSUqiA57FNwD0iuEHP8jhMaIeLSSw0XUqit1CBqn2kz20qnDxQt47oOuVmEXefDEhXfr72hmDyZmnKlix29muOdzQyV+FyzlhhECa5OOv4rRU3sUCxn5"
+}
+
+resource "openstack_networking_network_v2" "private_network" {
+  name             = "network_name"
+  admin_state_up   = "true"
+}
+
+resource "openstack_networking_subnet_v2" "private_subnet" {
+  name             = "subnet_name"
+  network_id       = openstack_networking_network_v2.private_network.id
+  cidr             = "192.168.1.0/24"
+  dns_nameservers  = [
+                      "195.210.46.195",
+                      "195.210.46.132"
+                      ]
+  ip_version       = 4
+  enable_dhcp      = true
+  depends_on = [openstack_networking_network_v2.private_network]
+}
+
+resource "openstack_networking_router_v2" "router" {
+  name             = "router_name"
+  external_network_id = "83554642-6df5-4c7a-bf55-21bc74496109" #UUID of the floating ip network
+  admin_state_up   = "true"
+  depends_on = [openstack_networking_network_v2.private_network]
+}
+
+resource "openstack_networking_router_interface_v2" "router_interface" {
+  router_id        = openstack_networking_router_v2.router.id
+  subnet_id        = openstack_networking_subnet_v2.private_subnet.id
+  depends_on       = [openstack_networking_router_v2.router]
+}
+
+resource "openstack_networking_floatingip_v2" "instance_fip" {
+  pool             = "FloatingIP Net"
+}
+
+resource "openstack_compute_secgroup_v2" "sg_name" {
+  name        = "sg_name"
+  description = "open all icmp, and ssh"
+
+  rule {
+    from_port   = 22
+    to_port     = 22
+    ip_protocol = "tcp"
+    cidr        = "0.0.0.0/0"
+  }
+
+  rule {
+    from_port   = -1
+    to_port     = -1
+    ip_protocol = "icmp"
+    cidr        = "0.0.0.0/0"
+  }
+}
+
+resource "openstack_blockstorage_volume_v3" "volume_name_with_os" {
+  name                = "volume_name_with_os"
+  size                = 30
+  volume_type         = "ceph-ssd"
+  image_id            = var.image_id
+  enable_online_resize = true
+}
+
+
+resource "openstack_compute_instance_v2" "instance" {
+  name              = "instance_name"
+  flavor_name       = "d1.ram4cpu1"
+  key_pair          = openstack_compute_keypair_v2.ssh.name
+  security_groups   = [openstack_compute_secgroup_v2.sg_name.name]
+  config_drive      = true
+  user_data         = <<-EOF
+    #cloud-config
+    password: Cisco
+    chpasswd: { expire: False }
+    ssh_pwauth: True
+    EOF
+
+  block_device {
+    uuid                = openstack_blockstorage_volume_v3.volume_name_with_os.id
+    source_type         = "volume"
+    boot_index          = 0
+    destination_type    = "volume"
+    delete_on_termination = false
+  }
+
+  network {
+    uuid         = openstack_networking_network_v2.private_network.id
+  }
+
+  depends_on = [
+    openstack_networking_network_v2.private_network,
+    openstack_blockstorage_volume_v3.volume_name_with_os
+  ]
+}
+resource "openstack_compute_floatingip_associate_v2" "instance_fip_association" {
+  floating_ip      = openstack_networking_floatingip_v2.instance_fip.address
+  instance_id      = openstack_compute_instance_v2.instance.id
+  fixed_ip         = openstack_compute_instance_v2.instance.access_ip_v4
+ }

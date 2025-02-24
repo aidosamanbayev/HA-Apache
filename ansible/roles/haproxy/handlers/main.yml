@@ -1,0 +1,5 @@
+---
+- name: Перезапустить HAProxy
+  service:
+    name: haproxy
+    state: restarted
